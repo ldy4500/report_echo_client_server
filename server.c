@@ -8,6 +8,9 @@
 #include "netinet/in.h"
 #include "pthread.h"
 
+int connect_fd[10];
+int fd_end = 0;
+
 void *t_function(void *connect_fd){
 	int msg_size;
 	int fd;
@@ -15,15 +18,44 @@ void *t_function(void *connect_fd){
 	char message[1024];
 	while((msg_size = read(fd, message, 1024))!=0){
 		write(fd, message, msg_size);
+		//broadcast(message);
 		printf("%s\n",message);
 	}
 	close(fd);
 }
 
+void *t_functionBroadcast(void *connect_fd){
+	int msg_size;
+	int fd;
+	fd  = *((int *)connect_fd);
+	char message[1024];
+	while((msg_size = read(fd, message, 1024))!=0){
+		broadcast(message);
+		printf("%s\n",message);
+	}
+	close(fd);
+}
+
+void *t_functionNonEcho(void *connect_fd){
+	int msg_size;
+	int fd;
+	fd = *((int *)connect_fd);
+	char message[1024];
+	while((msg_size = read(fd, message, 1024))!=0){
+		printf("%s\n",message);
+	}
+	close(fd);
+}
+
+void broadcast(char *message){
+	for(int i=0;i<fd_end;i++){
+		write(connect_fd[i], message, strlen(message));
+	}
+}
 
 
 int main(int argc, char *argv[]){
-	int server_fd, connect_fd;// listen, connect socket
+	int server_fd;// listen, connect socket
 	char message[1024];
 	struct sockaddr_in serv_addr, client_addr; //server & client address
 	unsigned int len;
@@ -33,13 +65,38 @@ int main(int argc, char *argv[]){
 	int end = 0;
 	int thread_id;
 	int status;
+	int echo = 0;
 
 
 	len = sizeof(client_addr);
 
-	if(argc != 2){
+	if(argc < 2){
 		printf("port miss");
 		exit(0);
+	}
+
+	if(argc == 2){
+		echo = 0;
+	}
+	
+	if(argc == 3){
+		if(strcmp(argv[2],"-e")==0){
+			echo = 1;
+		}
+		else{
+			printf("not correct option");
+			exit(0);
+		}
+	}
+
+	if(argc == 4){
+		if(strcmp(argv[2], "-e") == 0 && strcmp(argv[3], "-b") == 0){
+			echo = 2;
+		}
+		else{
+			printf("not correct option");
+			exit(0);
+		}
 	}
 
 	if((server_fd = socket(AF_INET, SOCK_STREAM, 0))<0){
@@ -68,11 +125,12 @@ int main(int argc, char *argv[]){
 	printf("wait for client\n");
 
 	while(1){
-		connect_fd = accept(server_fd,(struct sockaddr *)&client_addr, &len);
-		if(connect_fd < 0){
+		connect_fd[fd_end] = accept(server_fd,(struct sockaddr *)&client_addr, &len);
+		if(connect_fd[fd_end] < 0){
 			printf("accept error");
 			exit(0);
 		}
+	
 		printf("connect");
 		inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, client_ip, sizeof(client_ip));
 		printf("%s connected\n",client_ip);
@@ -82,9 +140,18 @@ int main(int argc, char *argv[]){
 			write(connect_fd, message, msg_size);
 			printf("%s \n", message);
 		}*/
-		
-		thread_id = pthread_create(&p_thread[end],NULL, t_function,(void*)&connect_fd);
+		if(echo == 0){	
+			thread_id = pthread_create(&p_thread[end],NULL, t_functionNonEcho,(void*)&connect_fd[fd_end]);
+		}
+		else if(echo == 1){
+			thread_id = pthread_create(&p_thread[end],NULL, t_function,(void*)&connect_fd[fd_end]);
+		}
+		else if(echo == 2){
+			thread_id = pthread_create(&p_thread[end],NULL, t_functionBroadcast,(void*)&connect_fd[fd_end]);
+		}
+
 		end++;
+		fd_end++;
 		if(thread_id < 0){
 			printf("tread error");
 			exit(0);
